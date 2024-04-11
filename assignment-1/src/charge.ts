@@ -9,42 +9,52 @@ export type Receipt = {
 };
 
 export type Payment = {
-  type: string;
+  type: 'COUPON'|'CASH';
   percentage?: number;
   amount?: number;
 };
 
-export function charge(invoice: Invoice, payments: Payment[]) {
+function applyCouponPayment(payment: Payment, total: number, deposit: number): number {
+  if (payment.percentage != null) {
+    deposit += Math.floor(total * (payment.percentage / 100));
+  } else {
+    deposit += payment.amount || 0;
+  }
+  return deposit;
+}
+
+function applyNonCouponPayment(payment: Payment, total: number, deposit: number): number {
+  if (deposit >= total) {
+    throw new Error('OverCharge');
+  }
+
+  deposit += payment.amount || 0;
+  return deposit;
+}
+
+export function charge(invoice: Invoice, payments: Payment[]): Receipt {
   const total = invoice.total;
   let deposit = 0;
+  let isCoupon = true;
 
   payments
-    .sort((payment) => (payment.type !== 'CASH' ? -1 : 1))
-    .map((payment) => {
+   .sort((payment) => (payment.type !== 'CASH' ? -1 : 1))
+   .forEach((payment) => {
       if (payment.type === 'COUPON') {
-        if (payment.percentage != null) {
-          deposit += Math.floor(total * (payment.percentage / 100));
-        } else {
-          deposit += payment.amount || 0;
-        }
+        deposit = applyCouponPayment(payment, total, deposit);
       } else {
-        if (deposit >= total) {
-          throw new Error('OverCharge');
-        }
-        deposit += payment.amount || 0;
+        isCoupon = false;
+        deposit = applyNonCouponPayment(payment, total, deposit);
       }
     });
+
   if (total > deposit) {
     throw new Error('Shortage');
   }
 
-  let isCoupon = true;
-  for (let i = 0; i < payments.length; i++) {
-    if (payments[i].type !== 'COUPON') {
-      isCoupon = false;
-      continue;
-    }
+  if (isCoupon) {
+    return { total, deposit, change: 0 };
   }
-  if (isCoupon) return { total, deposit, change: 0 };
-  return { total: total, deposit: deposit, change: deposit - total };
+
+  return { total, deposit, change: deposit - total };
 }
